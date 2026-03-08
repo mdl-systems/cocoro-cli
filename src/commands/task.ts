@@ -1,12 +1,20 @@
 // ============================================================
 // commands/task.ts — エージェントタスク管理コマンド
+// TaskHandle.stream() によるSSEリアルタイム進捗表示
 // ============================================================
 
+import React from 'react'
+import { render, useApp } from 'ink'
 import chalk from 'chalk'
 import ora from 'ora'
 import { createClient } from '../lib/client.js'
 import { printHeader, printDivider } from '../lib/format.js'
-import type { TaskStatus } from '@mdl-systems/cocoro-sdk'
+import { TaskProgress } from '../ui/TaskProgress.js'
+import type { Task, TaskResult, TaskProgressEvent, TaskStatus, TaskType, TaskPriority } from '@mdl-systems/cocoro-sdk'
+
+// ────────────────────────────────────────────────────────────
+// task run
+// ────────────────────────────────────────────────────────────
 
 interface TaskRunOptions {
     type?: string
@@ -14,94 +22,102 @@ interface TaskRunOptions {
     json?: boolean
 }
 
-interface TaskListOptions {
-    status?: string
-    limit?: number
-    json?: boolean
+/** TaskProgressをレンダリングするラッパーコンポーネント */
+interface TaskRunnerProps {
+    task: Task
+    stream: AsyncGenerator<TaskProgressEvent>
 }
 
-// タスクステータスの色
-function colorStatus(status: string): string {
-    switch (status) {
-        case 'in_progress': return chalk.yellow('実行中')
-        case 'completed': return chalk.green('完了')
-        case 'failed': return chalk.red('失敗')
-        case 'pending': return chalk.blue('待機中')
-        default: return chalk.gray(status)
-    }
+const TaskRunner: React.FC<TaskRunnerProps> = ({ task, stream }) => {
+    const { exit } = useApp()
+
+    const handleComplete = React.useCallback((result: TaskResult | null, error: string | null) => {
+        // 完了後1秒待って終了
+        setTimeout(() => exit(), 1500)
+    }, [exit])
+
+    return React.createElement(TaskProgress, { task, stream, onComplete: handleComplete })
 }
 
 export async function taskRunCommand(description: string, opts: TaskRunOptions): Promise<void> {
     const client = await createClient()
 
     console.log()
-    console.log(chalk.bold.magenta('🤖 タスク実行'))
-    console.log(chalk.dim(`  ${description}`))
-    console.log()
+    console.log(chalk.bold.magenta('🤖 タスク投入中...'))
 
-    const spinner = ora({
-        text: 'タスクを送信中...',
-        color: 'magenta',
-        spinner: 'dots',
-    }).start()
+    const spinner = ora({ text: 'タスクを作成中...', color: 'magenta' }).start()
 
     try {
-        // TaskPriority は 'low' | 'normal' | 'high' | 'urgent'
-        const priority = (['low', 'normal', 'high', 'urgent'].includes(opts.priority ?? ''))
-            ? opts.priority as 'low' | 'normal' | 'high' | 'urgent'
+        // 型安全なtype/priority変換
+        const validTypes: TaskType[] = ['research', 'write', 'analyze', 'schedule', 'auto']
+        const validPriorities: TaskPriority[] = ['low', 'normal', 'high']
+
+        const taskType: TaskType = validTypes.includes(opts.type as TaskType)
+            ? opts.type as TaskType
+            : 'auto'
+        const priority: TaskPriority = validPriorities.includes(opts.priority as TaskPriority)
+            ? opts.priority as TaskPriority
             : 'normal'
 
-        const task = await client.agent.createTask({
-            title: description.slice(0, 100), // titleは必須
+        // TaskHandle を取得（createTask + TaskHandleラップ）
+        const handle = await client.agent.run({
+            title: description.slice(0, 100),
             description,
+            type: taskType,
             priority,
         })
 
-        spinner.text = `タスク実行中... (ID: ${task.id})`
+        spinner.stop()
 
-        // ポーリングでステータス確認
-        const progressChars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
-        let spinIdx = 0
-        let pct = 0
-
-        while (true) {
-            await sleep(2000)
-
-            // listTasksでフィルタリングして確認
-            const tasks = await client.agent.listTasks({ limit: 50 })
-            const current = tasks.find(t => t.id === task.id)
-
-            if (!current) {
-                spinner.warn('タスクが見つかりません')
-                break
-            }
-
-            const spin = progressChars[spinIdx++ % progressChars.length]
-            pct = Math.min(pct + 10, 90) // シミュレーション的に進捗を上げる
-            const bar = buildProgressBar(pct / 100)
-            spinner.text = `${spin} ${colorStatus(current.status)}... ${bar} ${pct}%`
-
-            if (current.status === 'completed') {
-                spinner.succeed(chalk.green(`✅ 完了`))
-                console.log()
-                if (current.result) {
-                    console.log(chalk.bold('結果:'))
-                    console.log(current.result)
-                }
-                break
-            }
-
-            if (current.status === 'failed') {
-                spinner.fail(chalk.red('タスクが失敗しました'))
-                process.exit(1)
-            }
+        if (opts.json) {
+            // JSON出力: ポーリングで完了を待つ
+            console.log(JSON.stringify({ task_id: handle.id, status: handle.status }, null, 2))
+            const result = await handle.result()
+            console.log(JSON.stringify(result, null, 2))
+            return
         }
 
+        // SSEストリームを取得してinkでリアルタイム表示
+        const currentTask = await handle.refresh()
+        const stream = handle.stream()
+
+        const { waitUntilExit } = render(
+            React.createElement(TaskRunner, { task: currentTask, stream }),
+        )
+
+        await waitUntilExit()
+        console.log()
+
     } catch (err) {
-        spinner.fail('タスクの送信に失敗しました')
+        spinner.fail('タスクの作成に失敗しました')
         const msg = err instanceof Error ? err.message : String(err)
         console.error(chalk.red(msg))
+
+        // cocoro-agentが起動していない場合のフォールバック
+        console.log(chalk.yellow('\n⚠ cocoro-agentが起動していない可能性があります'))
+        console.log(chalk.dim('  設定: cocoro config でagentUrlを確認してください'))
         process.exit(1)
+    }
+}
+
+// ────────────────────────────────────────────────────────────
+// task list
+// ────────────────────────────────────────────────────────────
+
+interface TaskListOptions {
+    status?: string
+    limit?: number
+    json?: boolean
+}
+
+// タスクステータスの表示
+function colorStatus(status: TaskStatus): string {
+    switch (status) {
+        case 'running': return chalk.yellow('⠿ 実行中')
+        case 'queued': return chalk.blue('⏳ 待機中')
+        case 'completed': return chalk.green('✅ 完了')
+        case 'failed': return chalk.red('✗ 失敗')
+        default: return chalk.gray(status)
     }
 }
 
@@ -110,34 +126,45 @@ export async function taskListCommand(opts: TaskListOptions): Promise<void> {
     const spinner = ora({ text: 'タスク一覧を取得中...', color: 'magenta' }).start()
 
     try {
-        // TaskStatus は 'pending' | 'in_progress' | 'completed' | 'failed'
-        const validStatus: TaskStatus[] = ['pending', 'in_progress', 'completed', 'failed']
-        const statusFilter = validStatus.includes(opts.status as TaskStatus)
+        const validStatuses: TaskStatus[] = ['queued', 'running', 'completed', 'failed']
+        const status = validStatuses.includes(opts.status as TaskStatus)
             ? opts.status as TaskStatus
             : undefined
 
-        const tasks = await client.agent.listTasks({
-            status: statusFilter,
-            limit: opts.limit ?? 20,
-        })
+        const res = await client.agent.listTasks({ status, limit: opts.limit ?? 20 })
         spinner.stop()
 
         if (opts.json) {
-            console.log(JSON.stringify(tasks, null, 2))
+            console.log(JSON.stringify(res, null, 2))
             return
         }
 
-        printHeader('タスク一覧', `${tasks.length} 件`)
+        printHeader(`タスク一覧`, `${res.total} 件中 ${res.tasks.length} 件表示`)
 
-        if (tasks.length === 0) {
+        if (res.tasks.length === 0) {
             console.log(chalk.dim('  タスクがありません'))
         } else {
-            for (const task of tasks) {
-                const id = task.id.slice(0, 12)
+            for (const task of res.tasks) {
+                const id = chalk.cyan(task.task_id.slice(0, 12))
                 const status = colorStatus(task.status)
-                console.log(`  ${chalk.cyan(id)}  ${status}  [${task.priority}]`)
-                console.log(`    ${chalk.dim(task.description ?? task.title ?? '(説明なし)')}`)
+                const pct = task.progress != null
+                    ? chalk.dim(` ${Math.round(task.progress * 100)}%`)
+                    : ''
+                const assignee = task.assignedTo
+                    ? chalk.dim(` @${task.assignedTo}`)
+                    : ''
+                console.log(`  ${id}  ${status}${pct}${assignee}`)
+                console.log(chalk.dim(`    ${task.title}`))
                 console.log()
+            }
+        }
+
+        // 統計サマリー
+        const stats = await client.agent.getStats().catch(() => null)
+        if (stats) {
+            console.log(chalk.dim(`  合計: ${stats.total} タスク`))
+            for (const [st, count] of Object.entries(stats.byStatus)) {
+                if (count > 0) console.log(chalk.dim(`  ${st}: ${count}`))
             }
         }
 
@@ -150,43 +177,56 @@ export async function taskListCommand(opts: TaskListOptions): Promise<void> {
     }
 }
 
+// ────────────────────────────────────────────────────────────
+// task status
+// ────────────────────────────────────────────────────────────
+
 export async function taskStatusCommand(taskId: string, opts: { json?: boolean }): Promise<void> {
     const client = await createClient()
     const spinner = ora({ text: 'タスク状態を取得中...', color: 'magenta' }).start()
 
     try {
-        // listTasksからIDで検索
-        const tasks = await client.agent.listTasks({ limit: 100 })
-        const task = tasks.find(t => t.id === taskId || t.id.startsWith(taskId))
+        const task = await client.agent.getTask(taskId)
         spinner.stop()
-
-        if (!task) {
-            console.error(chalk.red(`✗ タスクが見つかりません: ${taskId}`))
-            process.exit(1)
-        }
 
         if (opts.json) {
             console.log(JSON.stringify(task, null, 2))
             return
         }
 
-        printHeader(`タスク: ${task.id.slice(0, 12)}...`)
-        console.log(`  ${chalk.bold('状態')}     ${colorStatus(task.status)}`)
-        console.log(`  ${chalk.bold('優先度')}   ${task.priority}`)
-        if (task.title) {
-            console.log(`  ${chalk.bold('タイトル')} ${task.title}`)
-        }
-        if (task.description) {
-            console.log(`  ${chalk.bold('説明')}     ${task.description}`)
-        }
+        printHeader(`タスク: ${taskId.slice(0, 12)}...`)
+        console.log(`  ${chalk.bold('状態')}       ${colorStatus(task.status)}`)
+        console.log(`  ${chalk.bold('タイトル')}   ${task.title}`)
         if (task.assignedTo) {
-            console.log(`  ${chalk.bold('担当')}     ${task.assignedTo}`)
+            console.log(`  ${chalk.bold('担当')}       ${task.assignedTo}`)
+        }
+        if (task.progress != null) {
+            const pct = Math.round(task.progress * 100)
+            console.log(`  ${chalk.bold('進捗')}       ${pct}%`)
+        }
+        if (task.currentStep) {
+            console.log(`  ${chalk.bold('現在')}       ${chalk.dim(task.currentStep)}`)
+        }
+        if (task.estimatedSeconds) {
+            console.log(`  ${chalk.bold('推定時間')}   ${task.estimatedSeconds}秒`)
         }
         if (task.result) {
             console.log()
-            console.log(chalk.bold('結果:'))
-            console.log(task.result)
+            console.log(chalk.bold('📋 結果:'))
+            const r = task.result
+            console.log(typeof r === 'string' ? r : JSON.stringify(r, null, 2))
         }
+        if (task.error) {
+            console.log()
+            console.log(chalk.red(`✗ エラー: ${task.error}`))
+        }
+
+        // 感情状態（タスク実行エージェントの感情）
+        if (task.emotion) {
+            console.log()
+            console.log(chalk.dim(`  感情: ${task.emotion.dominant} (happiness: ${task.emotion.happiness.toFixed(2)})`))
+        }
+
         printDivider()
     } catch (err) {
         spinner.fail('取得に失敗しました')
@@ -196,12 +236,43 @@ export async function taskStatusCommand(taskId: string, opts: { json?: boolean }
     }
 }
 
-function buildProgressBar(ratio: number, width = 20): string {
-    const filled = Math.round(Math.min(ratio, 1) * width)
-    const empty = width - filled
-    return chalk.magenta('█'.repeat(filled)) + chalk.dim('░'.repeat(empty))
-}
+// ────────────────────────────────────────────────────────────
+// task stats
+// ────────────────────────────────────────────────────────────
 
-function sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms))
+export async function taskStatsCommand(opts: { json?: boolean }): Promise<void> {
+    const client = await createClient()
+    const spinner = ora({ text: 'タスク統計を取得中...', color: 'magenta' }).start()
+
+    try {
+        const stats = await client.agent.getStats()
+        spinner.stop()
+
+        if (opts.json) {
+            console.log(JSON.stringify(stats, null, 2))
+            return
+        }
+
+        printHeader('タスク統計')
+        console.log(`  ${chalk.bold('合計')}  ${chalk.cyan(String(stats.total))} 件`)
+        console.log()
+        console.log(chalk.bold('ステータス別:'))
+        for (const [status, count] of Object.entries(stats.byStatus)) {
+            console.log(`  ${status.padEnd(12)} ${chalk.cyan(String(count))} 件`)
+        }
+        if (stats.byAgent.length > 0) {
+            console.log()
+            console.log(chalk.bold('エージェント別:'))
+            for (const { agent, count, avgDuration } of stats.byAgent) {
+                const dur = avgDuration ? ` (平均 ${(avgDuration / 1000).toFixed(1)}s)` : ''
+                console.log(`  ${agent.padEnd(16)} ${chalk.cyan(String(count))} 件${chalk.dim(dur)}`)
+            }
+        }
+        printDivider()
+    } catch (err) {
+        spinner.fail('取得に失敗しました')
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error(chalk.red(msg))
+        process.exit(1)
+    }
 }

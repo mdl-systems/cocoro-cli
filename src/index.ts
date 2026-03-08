@@ -163,6 +163,15 @@ taskCmd
         await taskStatusCommand(taskId, opts)
     })
 
+taskCmd
+    .command('stats')
+    .description('タスク統計を表示')
+    .option('--json', 'JSON形式で出力')
+    .action(async (opts) => {
+        const { taskStatsCommand } = await import('./commands/task.js')
+        await taskStatsCommand(opts)
+    })
+
 // ────────────────────────────────────────────────────────────
 // エラーハンドリングと起動
 // ────────────────────────────────────────────────────────────
