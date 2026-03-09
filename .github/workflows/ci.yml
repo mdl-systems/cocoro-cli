@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test:
+    name: vitest + build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # cocoro-sdk も同梱（ローカルパス参照のため）
+      - name: Checkout cocoro-sdk
+        uses: actions/checkout@v4
+        with:
+          repository: mdl-systems/cocoro-sdk
+          path: ../cocoro-sdk
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      # cocoro-sdk をビルド（cocoro-cli が file:../cocoro-sdk で参照）
+      - name: Build cocoro-sdk
+        run: |
+          cd ../cocoro-sdk
+          npm ci --ignore-scripts
+          node ./node_modules/typescript/bin/tsc -p tsconfig.json || true
+        continue-on-error: true
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+        working-directory: ./
+
+      - name: Type check
+        run: node ./node_modules/typescript/bin/tsc --noEmit
+        continue-on-error: true  # 型エラーは警告扱い（SDKの型変化に対応）
+
+      - name: Run tests
+        run: node ./node_modules/vitest/vitest.mjs run

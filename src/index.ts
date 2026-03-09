@@ -124,6 +124,27 @@ memCmd
         await memoryStatsCommand(opts)
     })
 
+memCmd
+    .command('delete <entryId>')
+    .description('指定IDのメモリエントリを削除')
+    .option('--force', '確認プロンプトをスキップ')
+    .option('--json', 'JSON形式で出力')
+    .action(async (entryId: string, opts) => {
+        const { memoryDeleteCommand } = await import('./commands/memory.js')
+        await memoryDeleteCommand(entryId, opts)
+    })
+
+memCmd
+    .command('clear')
+    .description('メモリを一括削除（デフォルト: 短期記憶のみ）')
+    .option('--all', '全メモリ（短期+長期+エピソード）を削除')
+    .option('--force', '確認プロンプトをスキップ')
+    .option('--json', 'JSON形式で出力')
+    .action(async (opts) => {
+        const { memoryClearCommand } = await import('./commands/memory.js')
+        await memoryClearCommand(opts)
+    })
+
 // ────────────────────────────────────────────────────────────
 // cocoro task
 // ────────────────────────────────────────────────────────────

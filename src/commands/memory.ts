@@ -2,17 +2,17 @@
 // commands/memory.ts — メモリ操作コマンド
 // ============================================================
 
+import { confirm } from '@inquirer/prompts'
 import chalk from 'chalk'
 import ora from 'ora'
 import { createClient } from '../lib/client.js'
-import { printHeader, printDivider } from '../lib/format.js'
+import { printHeader, printDivider, success } from '../lib/format.js'
+
+// ────────────────────────────────────────────────────────────
+// memory list
+// ────────────────────────────────────────────────────────────
 
 interface MemoryListOptions {
-    limit?: number
-    json?: boolean
-}
-
-interface MemorySearchOptions {
     limit?: number
     json?: boolean
 }
@@ -37,7 +37,8 @@ export async function memoryListCommand(opts: MemoryListOptions): Promise<void> 
         } else {
             for (const entry of entries) {
                 const ts = entry.timestamp ? new Date(entry.timestamp).toLocaleString('ja-JP') : ''
-                console.log(chalk.dim(`  [${ts}]`))
+                // IDをdeleteコマンド用に表示
+                console.log(chalk.dim(`  [${ts}] ID: ${chalk.cyan(entry.id)}`))
                 console.log(`  ${chalk.bold(entry.role)}: ${entry.content}`)
                 console.log()
             }
@@ -50,6 +51,15 @@ export async function memoryListCommand(opts: MemoryListOptions): Promise<void> 
         console.error(chalk.red(msg))
         process.exit(1)
     }
+}
+
+// ────────────────────────────────────────────────────────────
+// memory search
+// ────────────────────────────────────────────────────────────
+
+interface MemorySearchOptions {
+    limit?: number
+    json?: boolean
 }
 
 export async function memorySearchCommand(query: string, opts: MemorySearchOptions): Promise<void> {
@@ -74,7 +84,9 @@ export async function memorySearchCommand(query: string, opts: MemorySearchOptio
                 const r = results[i]
                 const score = chalk.yellow(` [${(r.score * 100).toFixed(0)}%]`)
                 const typeLabel = chalk.dim(`[${r.type}]`)
-                console.log(`  ${chalk.cyan(`${i + 1}.`)} ${r.content}${score} ${typeLabel}`)
+                // IDをdeleteコマンド用に表示
+                console.log(`  ${chalk.cyan(`${i + 1}.`)} ${chalk.dim(`ID: ${r.id}`)}`)
+                console.log(`     ${r.content}${score} ${typeLabel}`)
                 console.log()
             }
         }
@@ -87,6 +99,10 @@ export async function memorySearchCommand(query: string, opts: MemorySearchOptio
         process.exit(1)
     }
 }
+
+// ────────────────────────────────────────────────────────────
+// memory stats
+// ────────────────────────────────────────────────────────────
 
 export async function memoryStatsCommand(opts: { json?: boolean }): Promise<void> {
     const client = await createClient()
@@ -113,6 +129,140 @@ export async function memoryStatsCommand(opts: { json?: boolean }): Promise<void
         printDivider()
     } catch (err) {
         spinner.fail('取得に失敗しました')
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error(chalk.red(msg))
+        process.exit(1)
+    }
+}
+
+// ────────────────────────────────────────────────────────────
+// memory delete — エントリ1件削除
+// ────────────────────────────────────────────────────────────
+
+interface MemoryDeleteOptions {
+    force?: boolean
+    json?: boolean
+}
+
+export async function memoryDeleteCommand(entryId: string, opts: MemoryDeleteOptions): Promise<void> {
+    if (!opts.force) {
+        console.log()
+        console.log(chalk.yellow(`  ⚠  エントリを削除します`))
+        console.log(chalk.dim(`     ID: ${entryId}`))
+        console.log()
+
+        const ok = await confirm({
+            message: '削除してよいですか？',
+            default: false,
+        })
+        if (!ok) {
+            console.log(chalk.dim('  キャンセルしました'))
+            return
+        }
+    }
+
+    const client = await createClient()
+    const spinner = ora({ text: '削除中...', color: 'red' }).start()
+
+    try {
+        const result = await client.memory.deleteEntry(entryId)
+        spinner.stop()
+
+        if (opts.json) {
+            console.log(JSON.stringify(result, null, 2))
+            return
+        }
+
+        success(`エントリを削除しました (${result.deleted} 件)`)
+        if (result.message) {
+            console.log(chalk.dim(`  ${result.message}`))
+        }
+    } catch (err) {
+        spinner.fail('削除に失敗しました')
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error(chalk.red(msg))
+        process.exit(1)
+    }
+}
+
+// ────────────────────────────────────────────────────────────
+// memory clear — 一括削除
+// ────────────────────────────────────────────────────────────
+
+interface MemoryClearOptions {
+    /** 全メモリ（短期+長期+エピソード）を削除する */
+    all?: boolean
+    /** 確認プロンプトをスキップ */
+    force?: boolean
+    json?: boolean
+}
+
+export async function memoryClearCommand(opts: MemoryClearOptions): Promise<void> {
+    const target = opts.all
+        ? '全メモリ（短期 + 長期 + エピソード）'
+        : '短期記憶（会話履歴）'
+
+    if (!opts.force) {
+        console.log()
+        console.log(chalk.red(`  ⚠  ${target}を全て削除します`))
+        console.log(chalk.dim('     この操作は元に戻せません'))
+        console.log()
+
+        const ok1 = await confirm({
+            message: `${target}を削除してよいですか？`,
+            default: false,
+        })
+        if (!ok1) {
+            console.log(chalk.dim('  キャンセルしました'))
+            return
+        }
+
+        // --all の場合はさらに二重確認
+        if (opts.all) {
+            const ok2 = await confirm({
+                message: chalk.red('本当に全てのメモリを削除しますか？（元に戻せません）'),
+                default: false,
+            })
+            if (!ok2) {
+                console.log(chalk.dim('  キャンセルしました'))
+                return
+            }
+        }
+    }
+
+    const client = await createClient()
+    const spinner = ora({
+        text: `${target}を削除中...`,
+        color: 'red',
+    }).start()
+
+    try {
+        const result = opts.all
+            ? await client.memory.clearAll()
+            : await client.memory.clearShortTerm()
+
+        spinner.stop()
+
+        if (opts.json) {
+            console.log(JSON.stringify(result, null, 2))
+            return
+        }
+
+        success(`${target}を削除しました (${result.deleted} 件)`)
+        if (result.message) {
+            console.log(chalk.dim(`  ${result.message}`))
+        }
+
+        // 削除後の統計を表示
+        const stats = await client.memory.getStats().catch(() => null)
+        if (stats) {
+            console.log()
+            console.log(chalk.dim(
+                `  残: 短期 ${stats.shortTermCount} 件  長期 ${stats.longTermCount} 件  エピソード ${stats.episodicCount} 件`
+            ))
+        }
+    } catch (err) {
+        spinner.fail('削除に失敗しました')
         const msg = err instanceof Error ? err.message : String(err)
         console.error(chalk.red(msg))
         process.exit(1)
