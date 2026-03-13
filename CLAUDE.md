@@ -48,17 +48,26 @@ src/
 
 | CLI コマンド | SDK メソッド |
 |-----------|------------|
+| `cocoro setup` | 設定ウィザード（SDK不使用、直接fetch） |
 | `cocoro ask` | `client.chat.send()` / `client.chat.stream()` |
 | `cocoro chat` | `client.chat.stream()` + SSE |
+| `cocoro chat "質問"` | 引数ありの場合 `client.chat.stream()` でワンショット |
 | `cocoro status` | `client.health.check()` / `client.monitor.getDashboard()` / `client.emotion.getState()` / `client.personality.getGrowth()` / `client.memory.getStats()` / `client.agent.getOrgStatus()` |
+| `cocoro emotion` | `client.emotion.getState()` |
+| `cocoro sync` | `client.personality.getGrowth()` / `client.personality.get()` |
 | `cocoro personality` | `client.personality.get()` / `client.personality.getGrowth()` |
 | `cocoro memory list` | `client.memory.getShortTerm()` |
 | `cocoro memory search` | `client.memory.search()` |
 | `cocoro memory stats` | `client.memory.getStats()` |
+| `cocoro memory delete` | `client.memory.deleteEntry()` |
+| `cocoro memory clear` | `client.memory.clearShortTerm()` / `client.memory.clearAll()` |
+| `cocoro agent list` | `client.agent.list()` |
+| `cocoro agent run` | `client.agent.run()` → `TaskHandle.stream()` SSE |
 | `cocoro task run` | `client.agent.run()` → `TaskHandle.stream()` SSE |
 | `cocoro task list` | `client.agent.listTasks()` |
 | `cocoro task status` | `client.agent.getTask(taskId)` |
 | `cocoro task stats` | `client.agent.getStats()` |
+| `cocoro config set` | 設定ファイル直接更新 |
 
 ---
 
@@ -165,5 +174,6 @@ tests/
 
 | 日付 | 内容 |
 |------|------|
+| 2026-03-13 | フル実装: `cocoro emotion` / `cocoro sync` / `cocoro agent list` / `cocoro agent run` / `cocoro setup` / `cocoro config set` / `cocoro chat "質問"` (ワンショット引数対応) |
 | 2026-03-09 | ink UIコンポーネント分離（`src/ui/`）、SSEタスクリアルタイム進捗、Vitestテスト追加 |
 | 2026-03-08 | 初版実装（Phase 1+2: config/ask/chat/status/personality/memory/task） |

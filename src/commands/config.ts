@@ -116,3 +116,31 @@ async function saveAndVerify(config: CocoroConfig): Promise<void> {
         }
     }
 }
+
+// ────────────────────────────────────────────────────────────
+// config set <key> <value>
+// ────────────────────────────────────────────────────────────
+
+const VALID_KEYS = ['baseUrl', 'apiKey', 'agentUrl', 'defaultUserId', 'defaultAgent'] as const
+type ConfigKey = typeof VALID_KEYS[number]
+
+export async function configSetCommand(key: string, value: string): Promise<void> {
+    if (!VALID_KEYS.includes(key as ConfigKey)) {
+        console.log(chalk.red(`  ✗ 不明なキー: ${key}`))
+        console.log(chalk.dim(`  有効なキー: ${VALID_KEYS.join(', ')}`))
+        process.exit(1)
+    }
+
+    const existing = await loadConfig() ?? {} as CocoroConfig
+    const updated: CocoroConfig = { ...existing, [key]: value } as CocoroConfig
+
+    if (!updated.baseUrl || !updated.apiKey) {
+        console.log(chalk.yellow('  ⚠  baseUrl と apiKey は必須です'))
+        console.log(chalk.dim('  先に `cocoro setup` を実行することをお勧めします'))
+    }
+
+    await saveConfig(updated)
+    success(`${key} を更新しました`)
+    console.log(chalk.dim(`  ${key}: ${key === 'apiKey' ? '****' + value.slice(-4) : value}`))
+}
+
