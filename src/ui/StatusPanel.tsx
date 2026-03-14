@@ -7,7 +7,7 @@ import { Box, Text } from 'ink'
 import type { HealthStatus, NodeDashboard } from '@mdl-systems/cocoro-sdk'
 import type { EmotionState, GrowthState, MemoryStats, OrgStatus } from '@mdl-systems/cocoro-sdk'
 import { EmotionBar } from './EmotionBar.js'
-import { formatUptime, cpuBar } from '../lib/format.js'
+import { formatUptime, cpuBar, emotionEmoji } from '../lib/format.js'
 
 interface StatusPanelProps {
     health: HealthStatus | null
@@ -17,6 +17,123 @@ interface StatusPanelProps {
     memory: MemoryStats | null
     orgStatus: OrgStatus | null
 }
+
+// ────────────────────────────────────────────────────────────
+// 感情の日本語ラベル
+// ────────────────────────────────────────────────────────────
+
+function emotionLabel(dominant: string): string {
+    const map: Record<string, string> = {
+        happiness: '喜び・楽しさ',
+        joy:       '喜び',
+        trust:     '信頼・安心',
+        fear:      '恐れ・不安',
+        surprise:  '驚き・好奇心',
+        sadness:   '悲しみ',
+        disgust:   '嫌悪',
+        anger:     '怒り',
+        anticipation: '期待・興奮',
+        neutral:   '穏やか',
+    }
+    return map[dominant] ?? dominant
+}
+
+// ────────────────────────────────────────────────────────────
+// コンパクトサマリーボックス（要求仕様に合わせた表示）
+// ────────────────────────────────────────────────────────────
+
+function SummaryBox({
+    health, orgStatus, growth, emotion, memory,
+}: Pick<StatusPanelProps, 'health' | 'orgStatus' | 'growth' | 'emotion' | 'memory'>) {
+    const coreUp   = health?.status === 'ok'
+    const agentUp  = orgStatus !== null  // agentが取れていれば稼働中と判断
+    const syncRate = growth?.syncRate ?? null
+    const dominant = emotion?.dominant ?? null
+    const totalMem = memory
+        ? (memory.shortTermCount ?? 0) + (memory.longTermCount ?? 0) + (memory.episodicCount ?? 0)
+        : null
+
+    const ROW_WIDTH = 33
+
+    const Row = ({ icon, label, value, color }: {
+        icon: string
+        label: string
+        value: string
+        color?: string
+    }) => {
+        const left  = `${icon} ${label}`
+        const right = value
+        const pad   = ROW_WIDTH - left.length - right.length
+        const spacer = ' '.repeat(Math.max(1, pad))
+        return (
+            <Box>
+                <Text dimColor>│ </Text>
+                <Text>{left}</Text>
+                <Text>{spacer}</Text>
+                <Text color={color as 'green' | 'yellow' | 'red' | 'cyan' | 'magentaBright' | undefined} bold={!!color}>
+                    {right}
+                </Text>
+                <Text dimColor> │</Text>
+            </Box>
+        )
+    }
+
+    return (
+        <Box flexDirection="column" marginBottom={1}>
+            <Text dimColor>{'┌' + '─'.repeat(ROW_WIDTH + 2) + '┐'}</Text>
+            <Box>
+                <Text dimColor>│ </Text>
+                <Text bold color="magentaBright">{'🌸 cocoro-OS ステータス'}</Text>
+                <Text dimColor>{' '.repeat(Math.max(0, ROW_WIDTH - 12))}</Text>
+                <Text dimColor> │</Text>
+            </Box>
+            <Text dimColor>{'├' + '─'.repeat(ROW_WIDTH + 2) + '┤'}</Text>
+
+            <Row
+                icon={coreUp ? '✅' : '✗'}
+                label="cocoro-core"
+                value={coreUp ? '稼働中' : 'オフライン'}
+                color={coreUp ? 'green' : 'red'}
+            />
+            <Row
+                icon={agentUp ? '✅' : '⚠'}
+                label="cocoro-agent"
+                value={agentUp ? '稼働中' : '不明'}
+                color={agentUp ? 'green' : 'yellow'}
+            />
+            {syncRate !== null && (
+                <Row
+                    icon="⚡"
+                    label="シンクロ率"
+                    value={`${syncRate}%`}
+                    color={syncRate >= 70 ? 'cyan' : syncRate >= 40 ? 'yellow' : 'red'}
+                />
+            )}
+            {dominant && (
+                <Row
+                    icon={emotionEmoji(dominant)}
+                    label="感情状態"
+                    value={emotionLabel(dominant)}
+                    color="magentaBright"
+                />
+            )}
+            {totalMem !== null && (
+                <Row
+                    icon="🧠"
+                    label="記憶数"
+                    value={`${totalMem}件`}
+                    color="cyan"
+                />
+            )}
+
+            <Text dimColor>{'└' + '─'.repeat(ROW_WIDTH + 2) + '┘'}</Text>
+        </Box>
+    )
+}
+
+// ────────────────────────────────────────────────────────────
+// CPU バー行
+// ────────────────────────────────────────────────────────────
 
 function CpuRow({ label, percent }: { label: string; percent: number }) {
     const bar = cpuBar(percent, 12)
@@ -30,28 +147,28 @@ function CpuRow({ label, percent }: { label: string; percent: number }) {
     )
 }
 
+// ────────────────────────────────────────────────────────────
+// メインパネル
+// ────────────────────────────────────────────────────────────
+
 export const StatusPanel: React.FC<StatusPanelProps> = ({
     health, dashboard, emotion, growth, memory, orgStatus,
 }) => {
     return (
         <Box flexDirection="column" paddingX={1}>
-            {/* ── ヘッダー ── */}
-            <Box borderStyle="round" borderColor="magentaBright" paddingX={2} marginBottom={1}>
-                <Text bold color="magentaBright">🌸 Cocoro Node Status</Text>
-                {health && (
-                    <Text color={health.status === 'ok' ? 'green' : 'yellow'}>
-                        {'  '}
-                        {health.status === 'ok' ? '✅' : '⚠'}
-                        {'  '}
-                        {health.version}
-                    </Text>
-                )}
-            </Box>
+            {/* ── コンパクトサマリー ── */}
+            <SummaryBox
+                health={health}
+                orgStatus={orgStatus}
+                growth={growth}
+                emotion={emotion}
+                memory={memory}
+            />
 
-            {/* ── ヘルス ── */}
+            {/* ── ヘルス詳細 ── */}
             {health && (
                 <Box flexDirection="column" marginBottom={1}>
-                    <Text bold color="cyan">📡 ヘルスチェック</Text>
+                    <Text bold color="cyan">📡 ヘルス詳細</Text>
                     <Box paddingLeft={2} flexDirection="column">
                         <Box>
                             <Text dimColor>{'稼働時間'.padEnd(8)}</Text>
@@ -61,10 +178,6 @@ export const StatusPanel: React.FC<StatusPanelProps> = ({
                             <Text dimColor>{'LLM'.padEnd(8)}</Text>
                             <Text color={health.services.llm === 'ok' ? 'green' : 'red'}>
                                 {health.services.llm === 'ok' ? '✅ ok' : '✗ error'}
-                            </Text>
-                            <Text dimColor>{'  メモリ'.padEnd(8)}</Text>
-                            <Text color={health.services.memory === 'ok' ? 'green' : 'red'}>
-                                {health.services.memory === 'ok' ? '✅ ok' : '✗ error'}
                             </Text>
                             <Text dimColor>{'  DB'.padEnd(8)}</Text>
                             <Text color={health.services.database === 'ok' ? 'green' : 'red'}>
