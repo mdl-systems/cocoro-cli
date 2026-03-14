@@ -1,10 +1,7 @@
-// ============================================================
-// commands/memory.ts — メモリ操作コマンド
-// ============================================================
-
 import { confirm } from '@inquirer/prompts'
 import chalk from 'chalk'
 import ora from 'ora'
+import Table from 'cli-table3'
 import { createClient } from '../lib/client.js'
 import { printHeader, printDivider, success } from '../lib/format.js'
 
@@ -15,6 +12,7 @@ import { printHeader, printDivider, success } from '../lib/format.js'
 interface MemoryListOptions {
     limit?: number
     json?: boolean
+    format?: 'json' | 'table' | 'text'
 }
 
 export async function memoryListCommand(opts: MemoryListOptions): Promise<void> {
@@ -25,11 +23,40 @@ export async function memoryListCommand(opts: MemoryListOptions): Promise<void> 
         const entries = await client.memory.getShortTerm({ limit: opts.limit ?? 10 })
         spinner.stop()
 
-        if (opts.json) {
+        if (opts.json || opts.format === 'json') {
             console.log(JSON.stringify(entries, null, 2))
             return
         }
 
+        // ── table フォーマット ──
+        if (opts.format === 'table') {
+            const table = new Table({
+                head: [
+                    chalk.cyan('日時'),
+                    chalk.cyan('ロール'),
+                    chalk.cyan('内容'),
+                    chalk.cyan('ID'),
+                ],
+                colWidths: [22, 10, 50, 14],
+                wordWrap: true,
+                style: { head: [], border: ['dim'] },
+            })
+            for (const entry of entries) {
+                const ts = entry.timestamp
+                    ? new Date(entry.timestamp).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+                    : '-'
+                const content = entry.content.length > 48
+                    ? entry.content.slice(0, 48) + '…'
+                    : entry.content
+                table.push([ts, entry.role, content, entry.id.slice(0, 12)])
+            }
+            printHeader('🧠 最近の記憶', `${entries.length} 件`)
+            console.log(table.toString())
+            printDivider()
+            return
+        }
+
+        // ── text フォーマット（デフォルト） ──
         printHeader('最近の記憶', `${entries.length} 件`)
 
         if (entries.length === 0) {
@@ -37,7 +64,6 @@ export async function memoryListCommand(opts: MemoryListOptions): Promise<void> 
         } else {
             for (const entry of entries) {
                 const ts = entry.timestamp ? new Date(entry.timestamp).toLocaleString('ja-JP') : ''
-                // IDをdeleteコマンド用に表示
                 console.log(chalk.dim(`  [${ts}] ID: ${chalk.cyan(entry.id)}`))
                 console.log(`  ${chalk.bold(entry.role)}: ${entry.content}`)
                 console.log()

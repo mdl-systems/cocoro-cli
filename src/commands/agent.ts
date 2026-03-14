@@ -84,6 +84,7 @@ export async function agentListCommand(opts: AgentListOptions): Promise<void> {
 interface AgentRunOptions {
     priority?: string
     json?: boolean
+    outputFormat?: string
 }
 
 interface TaskRunnerProps {
@@ -107,19 +108,45 @@ const TaskRunner: React.FC<TaskRunnerProps> = ({ task, stream }) => {
 export async function agentRunCommand(role: string, taskDescription: string, opts: AgentRunOptions): Promise<void> {
     const client = await createClient()
 
+    const roleLabel = role !== 'default' ? role : 'default'
+    const roleEmoji: Record<string, string> = {
+        researcher: '🔍',
+        writer: '✍️',
+        analyst: '📊',
+        lawyer: '⚖️',
+        accountant: '🧹',
+        scheduler: '📅',
+        default: '🤖',
+    }
+    const emoji = roleEmoji[roleLabel] ?? '🤖'
+
     console.log()
-    console.log(chalk.bold.magenta(`🤖 エージェント [${role}] にタスクを投入中...`))
+    console.log(chalk.bold.magenta(`${emoji} ${roleLabel} エージェントを起動中...`))
+    console.log(chalk.dim(`  タスク: ${taskDescription}`))
 
     const spinner = ora({ text: 'タスクを作成中...', color: 'magenta' }).start()
 
     try {
-        const handle = await client.agent.run({
-            title: taskDescription.slice(0, 100),
-            description: taskDescription,
-            type: 'auto',
-            priority: (opts.priority as 'low' | 'normal' | 'high') ?? 'normal',
-            assignTo: role !== 'default' ? role : undefined,
-        })
+        const validPriorities = ['low', 'normal', 'high'] as const
+        type Priority = typeof validPriorities[number]
+        const priority: Priority = validPriorities.includes(opts.priority as Priority)
+            ? opts.priority as Priority
+            : 'normal'
+
+        // role 指定がある場合は runWithRole を使う（より適切なエージェント割り当て）
+        const handle = role !== 'default'
+            ? await client.agent.runWithRole({
+                role,
+                instruction: taskDescription,
+                outputFormat: (opts.outputFormat as 'markdown' | 'json' | 'plain') ?? 'markdown',
+                priority,
+            })
+            : await client.agent.run({
+                title: taskDescription.slice(0, 100),
+                description: taskDescription,
+                type: 'auto',
+                priority,
+            })
 
         spinner.stop()
 

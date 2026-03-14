@@ -14,19 +14,31 @@ program
     .version('0.2.0')
 
 // ────────────────────────────────────────────────────────────
-// cocoro setup — Boot Wizard（初回セットアップ）
+// cocoro init — 初回セットアップウィザード（推奨）
+// ────────────────────────────────────────────────────────────
+
+program
+    .command('init')
+    .description('🚀 初回セットアップウィザード — URL・APIキー・エージェント設定')
+    .action(async () => {
+        const { initCommand } = await import('./commands/init.js')
+        await initCommand()
+    })
+
+// ────────────────────────────────────────────────────────────
+// cocoro setup — Boot Wizard（詳細版）
 // ────────────────────────────────────────────────────────────
 
 program
     .command('setup')
-    .description('Boot Wizard — 初回セットアップを対話式で実行')
+    .description('Boot Wizard — 詳細セットアップ（init より多くの設定項目）')
     .action(async () => {
         const { setupCommand } = await import('./commands/setup.js')
         await setupCommand()
     })
 
 // ────────────────────────────────────────────────────────────
-// cocoro config / cocoro config set
+// cocoro config / cocoro config set / cocoro config show
 // ────────────────────────────────────────────────────────────
 
 const configCmd = program
@@ -69,13 +81,14 @@ program
     .option('--session <id>', 'セッションID（省略時は自動生成）')
     .option('--no-stream', 'ストリーミングなし')
     .option('--json', 'JSON形式で出力')
+    .option('--format <fmt>', '出力形式 (json|text)', 'text')
     .action(async (question: string | undefined, opts) => {
+        const useJson = opts.json || opts.format === 'json'
         if (question) {
-            // 引数ありの場合は ask コマンドに委譲
             const { askCommand } = await import('./commands/ask.js')
             await askCommand(question, {
                 noStream: opts.noStream === false,
-                json: opts.json,
+                json: useJson,
             })
         } else {
             const { chatCommand } = await import('./commands/chat.js')
@@ -92,12 +105,13 @@ program
     .description('ワンショット質問（ストリーミング表示）')
     .option('--no-stream', 'ストリーミングなし（パイプ用）')
     .option('--json', 'JSON形式で出力')
+    .option('--format <fmt>', '出力形式 (json|text)', 'text')
     .option('--user <userId>', 'ユーザーID')
     .action(async (question: string, opts) => {
         const { askCommand } = await import('./commands/ask.js')
         await askCommand(question, {
             noStream: opts.noStream === false,
-            json: opts.json,
+            json: opts.json || opts.format === 'json',
             userId: opts.user,
         })
     })
@@ -110,10 +124,14 @@ program
     .command('status')
     .description('ノード状態・感情・シンクロ率を表示')
     .option('--json', 'JSON形式で出力')
+    .option('--format <fmt>', '出力形式 (json|text)', 'text')
     .option('--watch', '5秒ごとに自動更新')
     .action(async (opts) => {
         const { statusCommand } = await import('./commands/status.js')
-        await statusCommand(opts)
+        await statusCommand({
+            json: opts.json || opts.format === 'json',
+            watch: opts.watch,
+        })
     })
 
 // ────────────────────────────────────────────────────────────
@@ -169,9 +187,14 @@ memCmd
     .description('最近の記憶を一覧表示')
     .option('--limit <n>', '件数', '10')
     .option('--json', 'JSON形式で出力')
+    .option('--format <fmt>', '出力形式 (json|table|text)', 'text')
     .action(async (opts) => {
         const { memoryListCommand } = await import('./commands/memory.js')
-        await memoryListCommand({ limit: parseInt(opts.limit, 10), json: opts.json })
+        await memoryListCommand({
+            limit: parseInt(opts.limit, 10),
+            json: opts.json || opts.format === 'json',
+            format: opts.format as 'json' | 'table' | 'text',
+        })
     })
 
 memCmd
@@ -179,9 +202,13 @@ memCmd
     .description('記憶を検索')
     .option('--limit <n>', '件数', '10')
     .option('--json', 'JSON形式で出力')
+    .option('--format <fmt>', '出力形式 (json|table|text)', 'text')
     .action(async (query: string, opts) => {
         const { memorySearchCommand } = await import('./commands/memory.js')
-        await memorySearchCommand(query, { limit: parseInt(opts.limit, 10), json: opts.json })
+        await memorySearchCommand(query, {
+            limit: parseInt(opts.limit, 10),
+            json: opts.json || opts.format === 'json',
+        })
     })
 
 memCmd
@@ -226,19 +253,25 @@ agentCmd
     .command('list')
     .description('エージェント一覧を表示')
     .option('--json', 'JSON形式で出力')
+    .option('--format <fmt>', '出力形式 (json|table|text)', 'text')
     .action(async (opts) => {
         const { agentListCommand } = await import('./commands/agent.js')
-        await agentListCommand(opts)
+        await agentListCommand({ json: opts.json || opts.format === 'json' })
     })
 
 agentCmd
     .command('run <role> <task>')
-    .description('指定ロールのエージェントにタスクを実行させる')
+    .description('指定ロールのエージェントにタスクを実行させる（SSEリアルタイム進捗）')
     .option('--priority <priority>', '優先度 (high/normal/low)', 'normal')
+    .option('--output-format <fmt>', '結果の出力フォーマット (markdown|json|plain)', 'markdown')
     .option('--json', 'JSON形式で出力')
     .action(async (role: string, task: string, opts) => {
         const { agentRunCommand } = await import('./commands/agent.js')
-        await agentRunCommand(role, task, opts)
+        await agentRunCommand(role, task, {
+            priority: opts.priority,
+            json: opts.json,
+            outputFormat: opts.outputFormat,
+        })
     })
 
 // ────────────────────────────────────────────────────────────
@@ -290,23 +323,23 @@ taskCmd
     })
 
 // ────────────────────────────────────────────────────────────
-// エラーハンドリングと起動
+// ヘルプテキスト
 // ────────────────────────────────────────────────────────────
 
 program.addHelpText('afterAll', `
 ${chalk.dim('例:')}
-  ${chalk.cyan('cocoro setup')}                          初回セットアップ
-  ${chalk.cyan('cocoro chat')}                           インタラクティブチャット
-  ${chalk.cyan('cocoro chat "今日の天気は？"')}           ワンショット質問
-  ${chalk.cyan('cocoro emotion')}                        感情状態確認
-  ${chalk.cyan('cocoro sync')}                           シンクロ率確認
-  ${chalk.cyan('cocoro status')}                         ノード状態確認
-  ${chalk.cyan('cocoro agent list')}                     エージェント一覧
-  ${chalk.cyan('cocoro agent run default "調査して"')}   タスク実行
-  ${chalk.cyan('cocoro memory list')}                    記憶一覧
-  ${chalk.cyan('cocoro memory search "旅行"')}           記憶検索
-  ${chalk.cyan('cocoro config set baseUrl http://...')}  設定変更
-  ${chalk.cyan('cocoro config show')}                    設定表示
+  ${chalk.cyan('cocoro init')}                           🚀 初回セットアップ（推奨）
+  ${chalk.cyan('cocoro chat')}                           💬 インタラクティブチャット
+  ${chalk.cyan('cocoro chat "今日の天気は？"')}           ❓ ワンショット質問
+  ${chalk.cyan('cocoro emotion')}                        😊 感情状態確認
+  ${chalk.cyan('cocoro sync')}                           ⚡ シンクロ率確認
+  ${chalk.cyan('cocoro status')}                         📊 ノード状態確認
+  ${chalk.cyan('cocoro agent list')}                     🤖 エージェント一覧
+  ${chalk.cyan('cocoro agent run researcher "調査して"')} 🔍 ロール指定タスク実行
+  ${chalk.cyan('cocoro memory list')}                    🧠 記憶一覧
+  ${chalk.cyan('cocoro memory search "旅行"')}           🔎 記憶検索
+  ${chalk.cyan('cocoro config set baseUrl http://...')}  ⚙  設定変更
+  ${chalk.cyan('cocoro config show')}                    👁  設定表示
 `)
 
 program.parse(process.argv)

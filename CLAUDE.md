@@ -174,6 +174,7 @@ tests/
 
 | 日付 | 内容 |
 |------|------|
+| 2026-03-14 | 最終仕上げ: `cocoro init`追加 / `agent run` に`runWithRole`対応・ロール別絵文字 / `--format` オプション（json/table/text）/ `memory list --format table` / README npm install 更新 |
 | 2026-03-14 | UX改善: `ChatUI` ブリンクカーソル・人格名取得・ラベル整形 / `StatusPanel` コンパクトボックス表示追加 / `package.json` npm publish 準備 (bin修正・publishConfig追加) |
 | 2026-03-13 | フル実装: `cocoro emotion` / `cocoro sync` / `cocoro agent list` / `cocoro agent run` / `cocoro setup` / `cocoro config set` / `cocoro chat "質問"` (ワンショット引数対応) / `cocoro config show` |
 | 2026-03-09 | ink UIコンポーネント分離（`src/ui/`）、SSEタスクリアルタイム進捗、Vitestテスト追加 |
