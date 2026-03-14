@@ -41,6 +41,14 @@ configCmd
         await configSetCommand(key, value)
     })
 
+configCmd
+    .command('show')
+    .description('現在の設定を表示')
+    .action(async () => {
+        const { configCommand } = await import('./commands/config.js')
+        await configCommand({ show: true })
+    })
+
 // "cocoro config" 単体（オプション付き）も引き続きサポート
 configCmd
     .option('--url <url>', 'cocoro-core URL')
@@ -298,6 +306,7 @@ ${chalk.dim('例:')}
   ${chalk.cyan('cocoro memory list')}                    記憶一覧
   ${chalk.cyan('cocoro memory search "旅行"')}           記憶検索
   ${chalk.cyan('cocoro config set baseUrl http://...')}  設定変更
+  ${chalk.cyan('cocoro config show')}                    設定表示
 `)
 
 program.parse(process.argv)

@@ -4,7 +4,7 @@
 // ============================================================
 
 import React from 'react'
-import { render } from 'ink'
+import { render, Text } from 'ink'
 import chalk from 'chalk'
 import ora from 'ora'
 import { createClient } from '../lib/client.js'
@@ -83,7 +83,7 @@ export async function statusCommand(opts: StatusOptions): Promise<void> {
                 React.createElement(StatusPanel, { ...data }),
                 lastUpdated
                     ? React.createElement(
-                        require('ink').Text,
+                        Text,
                         { dimColor: true },
                         `  最終更新: ${lastUpdated}  (5秒ごとに自動更新)`,
                     )
